@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Cup Group Stage Predictor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .bracket-col { min-width: 200px; }
+        .match-card { background: white; border: 1px solid #e5e7eb; border-radius: 0.5rem; overflow: hidden; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .team-btn { width: 100%; text-align: left; padding: 0.5rem 1rem; font-weight: 600; border-bottom: 1px solid #f3f4f6; transition: background-color 0.2s; cursor: pointer; }
+        .team-btn:last-child { border-bottom: none; }
+        .team-btn:hover:not(:disabled) { background-color: #f3f4f6; }
+        .team-btn.selected { background-color: #3b82f6; color: white; }
+        .team-btn:disabled { cursor: not-allowed; opacity: 0.9; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <div id="login-screen" class="fixed inset-0 bg-blue-900 z-50 flex flex-col items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full relative">
+            <div id="login-loading" class="hidden absolute inset-0 bg-white/90 z-10 flex flex-col items-center justify-center rounded-2xl">
+                <div class="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <p class="mt-4 font-bold text-blue-900">Connecting to Database...</p>
+            </div>
+            <h1 class="text-3xl font-bold text-center text-blue-900 mb-2">World Cup Pool</h1>
+            <p class="text-center text-gray-500 mb-6">Log in to edit your bracket, or view others.</p>
+            <div class="space-y-4">
+                <div>
+                    <select id="username" class="w-full border border-gray-300 p-2 rounded-lg outline-none font-bold">
+                        <option value="">Select your name...</option>
+                        <option value="Sid">Sid</option>
+                        <option value="Suriti">Suriti</option>
+                        <option value="Siddhartha">Siddhartha</option>
+                        <option value="Rohit">Rohit</option>
+                        <option value="Pranav">Pranav</option>
+                        <option value="Mukul">Mukul</option>
+                        <option value="Admin" class="font-bold text-red-600">Admin (Host)</option>
+                    </select>
+                </div>
+                <div>
+                    <input type="password" id="password" class="w-full border border-gray-300 p-2 rounded-lg outline-none" placeholder="Enter password">
+                </div>
+                <div id="login-error" class="text-red-500 text-sm hidden font-semibold">Incorrect password.</div>
+                <button onclick="attemptLogin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Log In</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-screen" class="hidden flex-1 flex flex-col overflow-hidden pb-20">
+        
+        <div class="bg-white shadow-sm z-30 flex-shrink-0">
+            <div class="max-w-7xl mx-auto p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-blue-900">World Cup Predictor</h1>
+                    <p id="welcome-text" class="text-xs font-semibold text-gray-500 mt-1"></p>
+                </div>
+                
+                <div class="flex flex-wrap items-center justify-center gap-3 w-full md:w-auto">
+                    <div class="bg-gray-100 p-1 rounded-lg flex gap-1 border border-gray-200">
+                        <button onclick="switchTab('groups')" id="tab-groups" class="px-4 py-1.5 rounded-md font-bold text-sm bg-white shadow text-blue-900">Group Stage</button>
+                        <button onclick="switchTab('knockout')" id="tab-knockout" class="px-4 py-1.5 rounded-md font-bold text-sm text-gray-500 hover:text-gray-800">Knockout Bracket</button>
+                    </div>
+
+                    <select id="view-selector" onchange="changeView()" class="w-40 border-2 border-blue-900 text-blue-900 font-bold p-1.5 rounded-lg outline-none bg-blue-50 text-sm">
+                        <option value="ME" id="opt-me">🌟 My Bracket</option>
+                        <option value="Results" id="opt-results" class="font-bold text-green-700">✅ Official Results</option>
+                        <optgroup label="View Friends">
+                            <option value="Sid">View Sid</option>
+                            <option value="Suriti">View Suriti</option>
+                            <option value="Siddhartha">View Siddhartha</option>
+                            <option value="Rohit">View Rohit</option>
+                            <option value="Pranav">View Pranav</option>
+                            <option value="Mukul">View Mukul</option>
+                        </optgroup>
+                    </select>
+                    <button onclick="logout()" class="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg font-bold text-gray-700">Log Out</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="locked-banner" class="hidden bg-red-100 border-b border-red-300 text-red-700 p-2 text-center text-sm font-medium flex-shrink-0">
+            🔒 <strong>Tournament Locked!</strong> The host has locked all brackets. You can no longer make edits.
+        </div>
+        <div id="readonly-banner" class="hidden bg-yellow-100 border-b border-yellow-300 text-yellow-700 p-2 text-center text-sm font-medium flex-shrink-0">
+            Viewing <strong id="viewing-name">Someone</strong>'s bracket. (Read-Only)
+        </div>
+
+        <div class="flex-1 overflow-auto p-6">
+            <div class="max-w-7xl mx-auto">
+                
+                <div id="admin-panel" class="hidden bg-gray-800 text-white p-4 rounded-xl shadow-lg mb-6 flex flex-col md:flex-row justify-between items-center border-2 border-red-500">
+                    <div>
+                        <h2 class="text-lg font-bold text-red-400">🛡️ Admin Tools</h2>
+                    </div>
+                    <div class="mt-4 md:mt-0 flex flex-wrap items-center gap-2">
+                        <span id="lock-status-text" class="font-bold text-green-400 text-sm mr-2">UNLOCKED</span>
+                        <button onclick="toggleGlobalLock()" id="lock-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold">Lock Tournament</button>
+                        <button onclick="resetDatabase()" id="reset-btn" class="bg-gray-600 hover:bg-red-900 text-white px-3 py-1.5 rounded-lg border border-red-500 text-sm font-bold">⚠️ Reset All</button>
+                    </div>
+                </div>
+
+                <div id="view-groups">
+                    <div id="groups-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+                </div>
+
+                <div id="view-knockout" class="hidden">
+                    
+                    <div id="admin-matchup-builder" class="hidden mb-8 bg-white p-6 rounded-xl border-2 border-purple-500 shadow-md">
+                        <h2 class="text-2xl font-bold text-purple-800 mb-2">🛠️ Build Round of 32 Matchups</h2>
+                        <p class="text-gray-600 mb-6">Select the 32 teams to create the initial bracket. Save when done.</p>
+                        <div id="admin-matchups-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            </div>
+                    </div>
+
+                    <div id="bracket-tree-container" class="overflow-x-auto pb-8">
+                        <div id="bracket-warning" class="text-center p-8 bg-gray-200 rounded-xl text-gray-600 font-bold hidden">
+                            The Admin has not set the Round of 32 Matchups yet.
+                        </div>
+                        <div id="bracket-flex" class="flex gap-8 min-w-max">
+                            </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="footer" class="hidden fixed bottom-0 left-0 right-0 bg-blue-900 text-white shadow-lg p-3 border-t-4 border-yellow-400 z-40">
+        <div class="max-w-7xl mx-auto flex justify-between items-center px-4">
+            <div id="group-stats" class="flex gap-6">
+                <div class="text-center"><span class="block text-[10px] uppercase text-blue-200">1st Place</span><span id="count-1st" class="text-xl font-bold">0/12</span></div>
+                <div class="text-center"><span class="block text-[10px] uppercase text-blue-200">2nd Place</span><span id="count-2nd" class="text-xl font-bold">0/12</span></div>
+                <div class="text-center"><span class="block text-[10px] uppercase text-blue-200">Wildcards</span><span id="count-3rd" class="text-xl font-bold">0/8</span></div>
+            </div>
+            <div id="ko-stats" class="hidden flex gap-6">
+                <div class="text-center"><span class="block text-[10px] uppercase text-purple-200">Bracket Status</span><span id="bracket-status-text" class="text-xl font-bold text-yellow-400">Incomplete</span></div>
+            </div>
+            <div>
+                <button id="save-btn" onclick="saveData()" class="bg-yellow-400 hover:bg-yellow-500 text-blue-900 font-bold py-2 px-6 rounded-full disabled:opacity-50">
+                    Save Picks
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🚨 YOUR DATABASE KEYS GO HERE 🚨
+        // ==========================================
+        const JSONBIN_BIN_ID = "6a32972cf5f4af5e2901a4a1";
+        const JSONBIN_MASTER_KEY = "$2a$10$0l4gFQmTWlOzufJtwESuB.Wpd3s.uJTUiKeiwE7JeVwBkHQWbLVRC";
+        
+        const playerCredentials = {
+            "Admin": "admin123", "Sid": "sid123", "Suriti": "suriti123", "Siddhartha": "sid2",
+            "Rohit": "rohit123", "Pranav": "pranav123", "Mukul": "mukul123"
+        };
+
+        const groupsData = {
+            'A': ['Mexico', 'South Africa', 'Korea Republic', 'Czechia'],
+            'B': ['Canada', 'Bosnia and Herzegovina', 'Qatar', 'Switzerland'],
+            'C': ['Brazil', 'Scotland', 'Morocco', 'Haiti'],
+            'D': ['United States', 'Türkiye', 'Paraguay', 'Australia'],
+            'E': ['Germany', 'Côte d’Ivoire', 'Ecuador', 'Curaçao'],
+            'F': ['Netherlands', 'Sweden', 'Tunisia', 'Japan'],
+            'G': ['Belgium', 'New Zealand', 'Egypt', 'Iran'],
+            'H': ['Spain', 'Uruguay', 'Cape Verde', 'Saudi Arabia'],
+            'I': ['France', 'Norway', 'Senegal', 'Iraq'],
+            'J': ['Argentina', 'Austria', 'Jordan', 'Algeria'],
+            'K': ['Portugal', 'Uzbekistan', 'Colombia', 'DR Congo'],
+            'L': ['England', 'Croatia', 'Ghana', 'Panama']
+        };
+
+        const ALL_TEAMS = Object.values(groupsData).flat().sort();
+
+        let cloudDatabase = null; 
+        let currentUser = null;
+        let viewingUser = null; 
+        let isReadOnly = false;
+        let isTournamentLocked = false; 
+        let currentTab = 'groups';
+
+        // --- DATABASE LOGIC ---
+        async function fetchDatabase() {
+            try {
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
+                if (!response.ok) throw new Error("Failed to connect");
+                const data = await response.json();
+                
+                cloudDatabase = data.record;
+                ensureDataStructure();
+                isTournamentLocked = cloudDatabase.isTournamentLocked || false;
+                return true;
+            } catch (error) {
+                alert("Database Error: Make sure your BIN_ID and MASTER_KEY are correct.");
+                return false;
+            }
+        }
+
+        function ensureDataStructure() {
+            const defaultUser = () => ({ firstPlace: {}, secondPlace: {}, thirdPlace: [], ko: { r16: [], qf: [], sf: [], final: [], champ: null }});
+            if (!cloudDatabase["Results"]) cloudDatabase["Results"] = defaultUser();
+            if (!cloudDatabase["adminMatchups"]) cloudDatabase["adminMatchups"] = Array(16).fill([null, null]);
+            ["Sid", "Suriti", "Siddhartha", "Rohit", "Pranav", "Mukul"].forEach(user => {
+                if (!cloudDatabase[user]) cloudDatabase[user] = defaultUser();
+                if (!cloudDatabase[user].ko) cloudDatabase[user].ko = defaultUser().ko;
+            });
+        }
+
+        async function attemptLogin() {
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+            const errorMsg = document.getElementById('login-error');
+            const loading = document.getElementById('login-loading');
+
+            if (user && playerCredentials[user] === pass) {
+                errorMsg.classList.add('hidden');
+                loading.classList.remove('hidden'); 
+                
+                const success = await fetchDatabase();
+                if (success) {
+                    loading.classList.add('hidden');
+                    currentUser = user;
+                    
+                    if (currentUser === "Admin") {
+                        document.getElementById('opt-me').style.display = 'none';
+                        document.getElementById('opt-results').innerText = "🔴 Edit Official Results";
+                        document.getElementById('view-selector').value = 'Results';
+                        document.getElementById('admin-panel').classList.remove('hidden');
+                        updateAdminUI();
+                    } else {
+                        document.getElementById('opt-me').style.display = 'block';
+                        document.getElementById('opt-results').innerText = "✅ Official Results";
+                        document.getElementById('view-selector').value = 'ME';
+                        document.getElementById('admin-panel').classList.add('hidden');
+                    }
+
+                    Array.from(document.getElementById('view-selector').options).forEach(opt => {
+                        if(opt.value !== "ME" && opt.value !== "Results") opt.style.display = opt.value === user ? 'none' : 'block';
+                    });
+                    
+                    changeView(); 
+                } else { loading.classList.add('hidden'); }
+            } else { errorMsg.classList.remove('hidden'); }
+        }
+
+        window.saveData = async function() {
+            const btn = document.getElementById('save-btn');
+            btn.innerText = "Saving...";
+            btn.disabled = true;
+
+            // If Admin is saving Knockouts, capture the manual matchups
+            if (currentUser === "Admin" && currentTab === 'knockout') {
+                const newMatchups = [];
+                for(let i=0; i<16; i++) {
+                    const t1 = document.getElementById(`admin-m-${i}-0`).value || null;
+                    const t2 = document.getElementById(`admin-m-${i}-1`).value || null;
+                    newMatchups.push([t1, t2]);
+                }
+                cloudDatabase.adminMatchups = newMatchups;
+            }
+
+            try {
+                await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_MASTER_KEY },
+                    body: JSON.stringify(cloudDatabase)
+                });
+                btn.innerText = "Saved! 🎉";
+                setTimeout(() => { btn.innerText = "Save Picks"; btn.disabled = false; }, 2000);
+            } catch (e) {
+                alert("Error saving!");
+                btn.innerText = "Save Picks";
+                btn.disabled = false;
+            }
+        }
+
+        // --- UI & TABS ---
+        window.switchTab = function(tab) {
+            currentTab = tab;
+            const tGroup = document.getElementById('tab-groups');
+            const tKo = document.getElementById('tab-knockout');
+            
+            if (tab === 'groups') {
+                tGroup.className = "px-4 py-1.5 rounded-md font-bold text-sm bg-white shadow text-blue-900";
+                tKo.className = "px-4 py-1.5 rounded-md font-bold text-sm text-gray-500 hover:text-gray-800";
+                document.getElementById('view-groups').classList.remove('hidden');
+                document.getElementById('view-knockout').classList.add('hidden');
+                document.getElementById('group-stats').classList.remove('hidden');
+                document.getElementById('ko-stats').classList.add('hidden');
+            } else {
+                tKo.className = "px-4 py-1.5 rounded-md font-bold text-sm bg-white shadow text-blue-900";
+                tGroup.className = "px-4 py-1.5 rounded-md font-bold text-sm text-gray-500 hover:text-gray-800";
+                document.getElementById('view-groups').classList.add('hidden');
+                document.getElementById('view-knockout').classList.remove('hidden');
+                document.getElementById('group-stats').classList.add('hidden');
+                document.getElementById('ko-stats').classList.remove('hidden');
+                renderKnockouts();
+            }
+        }
+
+        window.changeView = function() {
+            const selectorVal = document.getElementById('view-selector').value;
+            
+            if (selectorVal === 'ME' && currentUser !== 'Admin') {
+                viewingUser = currentUser;
+                isReadOnly = isTournamentLocked;
+                toggleBanners(isTournamentLocked ? 'locked' : 'none');
+            } else if (selectorVal === 'Results') {
+                viewingUser = 'Results';
+                isReadOnly = currentUser !== 'Admin'; 
+                toggleBanners(isReadOnly ? 'readonly' : 'none');
+            } else {
+                viewingUser = selectorVal;
+                isReadOnly = true; 
+                toggleBanners('readonly');
+            }
+
+            document.getElementById('welcome-text').innerText = `Logged in as: ${currentUser}`;
+            if (viewingUser !== currentUser && viewingUser !== 'Results') {
+                document.getElementById('viewing-name').innerText = viewingUser;
+            }
+
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('hidden');
+            
+            renderGroups();
+            if(currentTab === 'knockout') renderKnockouts();
+        }
+
+        function toggleBanners(type) {
+            document.getElementById('locked-banner').classList.add('hidden');
+            document.getElementById('readonly-banner').classList.add('hidden');
+            document.getElementById('footer').classList.add('hidden');
+            if (type === 'locked') document.getElementById('locked-banner').classList.remove('hidden');
+            if (type === 'readonly') document.getElementById('readonly-banner').classList.remove('hidden');
+            if (type === 'none') document.getElementById('footer').classList.remove('hidden');
+        }
+
+        // --- GROUP STAGE LOGIC ---
+        function renderGroups() {
+            const container = document.getElementById('groups-container');
+            container.innerHTML = '';
+            const activeData = cloudDatabase[viewingUser];
+            
+            for (const [groupName, teams] of Object.entries(groupsData)) {
+                const groupCard = document.createElement('div');
+                groupCard.className = `bg-white rounded-xl shadow-md overflow-hidden border border-gray-200 ${isReadOnly ? 'opacity-90' : ''}`;
+                
+                let teamsHTML = '';
+                teams.forEach(team => {
+                    const isFirst = activeData.firstPlace[groupName] === team;
+                    const isSecond = activeData.secondPlace[groupName] === team;
+                    const isThird = activeData.thirdPlace.includes(team);
+
+                    let buttonsHTML = '';
+                    if (!isReadOnly) {
+                        buttonsHTML = `
+                            <div class="flex gap-1">
+                                <button onclick="toggleGroupSelection('${groupName}', '${team}', 'first')" class="w-7 h-7 rounded text-xs font-bold ${isFirst ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-600'}">1</button>
+                                <button onclick="toggleGroupSelection('${groupName}', '${team}', 'second')" class="w-7 h-7 rounded text-xs font-bold ${isSecond ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}">2</button>
+                                <button onclick="toggleGroupSelection('${groupName}', '${team}', 'third')" class="w-7 h-7 rounded text-xs font-bold ${isThird ? 'bg-purple-500 text-white' : 'bg-gray-200 text-gray-600'}">W</button>
+                            </div>
+                        `;
+                    } else {
+                        if (isFirst) buttonsHTML = `<span class="bg-green-100 text-green-800 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded">1st</span>`;
+                        if (isSecond) buttonsHTML = `<span class="bg-blue-100 text-blue-800 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded">2nd</span>`;
+                        if (isThird) buttonsHTML = `<span class="bg-purple-100 text-purple-800 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded">Wildcard</span>`;
+                    }
+
+                    teamsHTML += `
+                        <div class="flex items-center justify-between p-2.5 border-b last:border-0 ${isFirst ? 'bg-green-50' : isSecond ? 'bg-blue-50' : isThird ? 'bg-purple-50' : ''}">
+                            <span class="font-medium text-sm text-gray-800 ${isFirst || isSecond || isThird ? 'font-bold' : ''}">${team}</span>
+                            ${buttonsHTML}
+                        </div>
+                    `;
+                });
+                groupCard.innerHTML = `<div class="bg-gray-800 text-white px-3 py-1.5 font-bold text-sm">Group ${groupName}</div><div>${teamsHTML}</div>`;
+                container.appendChild(groupCard);
+            }
+            if (!isReadOnly) updateGroupSummary(activeData);
+        }
+
+        window.toggleGroupSelection = function(group, team, type) {
+            if (isReadOnly) return; 
+            const activeData = cloudDatabase[viewingUser];
+            if (activeData.firstPlace[group] === team) delete activeData.firstPlace[group];
+            if (activeData.secondPlace[group] === team) delete activeData.secondPlace[group];
+            if (activeData.thirdPlace.includes(team)) activeData.thirdPlace = activeData.thirdPlace.filter(t => t !== team);
+
+            if (type === 'first') activeData.firstPlace[group] = team;
+            else if (type === 'second') activeData.secondPlace[group] = team;
+            else if (type === 'third' && activeData.thirdPlace.length < 8) activeData.thirdPlace.push(team);
+
+            renderGroups();
+        }
+
+        function updateGroupSummary(activeData) {
+            const first = Object.keys(activeData.firstPlace).length;
+            const second = Object.keys(activeData.secondPlace).length;
+            const third = activeData.thirdPlace.length;
+            document.getElementById('count-1st').innerText = `${first}/12`;
+            document.getElementById('count-2nd').innerText = `${second}/12`;
+            document.getElementById('count-3rd').innerText = `${third}/8`;
+        }
+
+        // --- KNOCKOUT STAGE LOGIC ---
+        function renderKnockouts() {
+            const adminBuilder = document.getElementById('admin-matchup-builder');
+            const bracketTree = document.getElementById('bracket-tree-container');
+            const warning = document.getElementById('bracket-warning');
+            const flexTree = document.getElementById('bracket-flex');
+
+            // 1. Check if matchups exist
+            const matchups = cloudDatabase.adminMatchups;
+            const matchupsExist = matchups && matchups[0] && matchups[0][0];
+
+            // 2. Admin controls
+            if (currentUser === 'Admin' && viewingUser === 'Results') {
+                adminBuilder.classList.remove('hidden');
+                renderAdminMatchupBuilder();
+            } else {
+                adminBuilder.classList.add('hidden');
+            }
+
+            // 3. Render Tree
+            if (!matchupsExist) {
+                warning.classList.remove('hidden');
+                flexTree.innerHTML = '';
+            } else {
+                warning.classList.add('hidden');
+                renderBracketTree();
+            }
+        }
+
+        function renderAdminMatchupBuilder() {
+            const container = document.getElementById('admin-matchups-container');
+            container.innerHTML = '';
+            
+            // Render 16 select pairs
+            for(let i=0; i<16; i++) {
+                const pair = cloudDatabase.adminMatchups[i] || [null, null];
+                let opts1 = `<option value="">-- Team 1 --</option>`;
+                let opts2 = `<option value="">-- Team 2 --</option>`;
+                
+                ALL_TEAMS.forEach(t => {
+                    opts1 += `<option value="${t}" ${pair[0] === t ? 'selected' : ''}>${t}</option>`;
+                    opts2 += `<option value="${t}" ${pair[1] === t ? 'selected' : ''}>${t}</option>`;
+                });
+
+                container.innerHTML += `
+                    <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                        <div class="text-xs font-bold text-gray-500 mb-1 uppercase">Match ${i+1}</div>
+                        <select id="admin-m-${i}-0" class="w-full text-sm border p-1 rounded mb-2">${opts1}</select>
+                        <select id="admin-m-${i}-1" class="w-full text-sm border p-1 rounded">${opts2}</select>
+                    </div>
+                `;
+            }
+        }
+
+        function renderBracketTree() {
+            const container = document.getElementById('bracket-flex');
+            container.innerHTML = '';
+            
+            const activeData = cloudDatabase[viewingUser];
+            const ko = activeData.ko;
+            const matchups = cloudDatabase.adminMatchups;
+
+            const rounds = [
+                { name: 'Round of 32', matches: 16, source: matchups.flat(), dest: 'r16' },
+                { name: 'Round of 16', matches: 8, source: ko.r16, dest: 'qf' },
+                { name: 'Quarterfinals', matches: 4, source: ko.qf, dest: 'sf' },
+                { name: 'Semifinals', matches: 2, source: ko.sf, dest: 'final' },
+                { name: 'Final', matches: 1, source: ko.final, dest: 'champ' }
+            ];
+
+            let html = '';
+            rounds.forEach((round, rIndex) => {
+                let colHtml = `<div class="bracket-col flex flex-col justify-center gap-4">
+                                <h3 class="text-center font-bold text-purple-900 mb-2 border-b-2 border-purple-200 pb-1">${round.name}</h3>`;
+                
+                for(let m=0; m<round.matches; m++) {
+                    const t1 = round.source[m*2] || 'TBD';
+                    const t2 = round.source[m*2+1] || 'TBD';
+                    
+                    // Determine which is selected
+                    let t1Selected = false, t2Selected = false;
+                    if(round.dest === 'champ') {
+                        t1Selected = (ko.champ === t1 && t1 !== 'TBD');
+                        t2Selected = (ko.champ === t2 && t2 !== 'TBD');
+                    } else {
+                        t1Selected = (ko[round.dest][m] === t1 && t1 !== 'TBD');
+                        t2Selected = (ko[round.dest][m] === t2 && t2 !== 'TBD');
+                    }
+
+                    colHtml += `
+                        <div class="match-card">
+                            <button onclick="pickKnockout('${round.dest}', ${m}, '${t1}', '${t2}')" ${isReadOnly || t1==='TBD' ? 'disabled' : ''} class="team-btn ${t1Selected ? 'selected' : ''}">${t1}</button>
+                            <button onclick="pickKnockout('${round.dest}', ${m}, '${t2}', '${t1}')" ${isReadOnly || t2==='TBD' ? 'disabled' : ''} class="team-btn ${t2Selected ? 'selected' : ''}">${t2}</button>
+                        </div>
+                    `;
+                }
+                colHtml += `</div>`;
+                html += colHtml;
+            });
+
+            // Champion Block
+            html += `<div class="bracket-col flex flex-col justify-center">
+                        <h3 class="text-center font-bold text-yellow-600 mb-2 border-b-2 border-yellow-400 pb-1 uppercase">Champion 🏆</h3>
+                        <div class="bg-yellow-100 border-2 border-yellow-400 text-center font-bold text-xl py-4 rounded-xl text-yellow-800 shadow-lg">
+                            ${ko.champ || 'TBD'}
+                        </div>
+                    </div>`;
+
+            container.innerHTML = html;
+
+            if(!isReadOnly) {
+                const complete = ko.champ !== null && ko.champ !== 'TBD';
+                document.getElementById('bracket-status-text').innerText = complete ? "Complete" : "Incomplete";
+                document.getElementById('bracket-status-text').className = complete ? "text-xl font-bold text-green-400" : "text-xl font-bold text-yellow-400";
+            }
+        }
+
+        window.pickKnockout = function(destRound, matchIndex, pickedTeam, loserTeam) {
+            if(isReadOnly || pickedTeam === 'TBD') return;
+            const ko = cloudDatabase[viewingUser].ko;
+
+            if (destRound === 'champ') {
+                ko.champ = pickedTeam;
+            } else {
+                ko[destRound][matchIndex] = pickedTeam;
+                // Ripple effect: if the loser was previously advanced further, clear them out
+                clearRipple(ko, destRound, loserTeam);
+            }
+            renderKnockouts();
+        }
+
+        function clearRipple(ko, currentRound, lostTeam) {
+            if(!lostTeam || lostTeam === 'TBD') return;
+            const rounds = ['r16', 'qf', 'sf', 'final'];
+            let startIndex = rounds.indexOf(currentRound) + 1;
+            
+            for(let i = startIndex; i < rounds.length; i++) {
+                const r = rounds[i];
+                for(let j=0; j<ko[r].length; j++) {
+                    if(ko[r][j] === lostTeam) ko[r][j] = null;
+                }
+            }
+            if(ko.champ === lostTeam) ko.champ = null;
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('app-screen').classList.add('hidden');
+            document.getElementById('footer').classList.add('hidden');
+        }
+        
+        window.toggleGlobalLock = async function() {
+            document.getElementById('lock-btn').innerText = "Updating...";
+            isTournamentLocked = !isTournamentLocked;
+            cloudDatabase.isTournamentLocked = isTournamentLocked;
+            await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_MASTER_KEY },
+                body: JSON.stringify(cloudDatabase)
+            });
+            updateAdminUI(); changeView();
+        }
+
+        function updateAdminUI() {
+            if (isTournamentLocked) {
+                document.getElementById('lock-btn').innerText = "Unlock Tournament";
+                document.getElementById('lock-status-text').innerText = "LOCKED";
+            } else {
+                document.getElementById('lock-btn').innerText = "Lock Tournament";
+                document.getElementById('lock-status-text').innerText = "UNLOCKED";
+            }
+        }
+    </script>
+</body>
+</html>
